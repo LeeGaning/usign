@@ -144,7 +144,7 @@ bool edsign_verify(struct edsign_verify_state *st, const void *sig, const void *
 	save_hash(&st->sha, z);
 
 	/* sB = (ze + k)B = ... */
-	sm_pack(lhs, sig + 32);
+	sm_pack(lhs, (const uint8_t*)sig + 32);
 
 	/* ... = zA + R */
 	ok &= upp(&p, pub);

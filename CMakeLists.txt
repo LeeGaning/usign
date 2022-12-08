@@ -1,9 +1,23 @@
 cmake_minimum_required(VERSION 2.8)
 
 PROJECT(usign C)
-ADD_DEFINITIONS(-O2 -Wall -Werror --std=gnu99 -g3 -Wmissing-declarations)
 
+add_definitions(-D_CRT_SECURE_NO_WARNINGS)
 SET(SOURCES ed25519.c edsign.c f25519.c fprime.c sha512.c main.c)
+
+IF (WIN32)
+	MESSAGE(STATUS "Now is windows")
+  SET(SOURCES  ${SOURCES} win32/mman.c win32/getopt.c)
+  INCLUDE_DIRECTORIES(win32/)
+  add_compile_options("$<$<C_COMPILER_ID:MSVC>:/utf-8>")
+  add_compile_options("$<$<CXX_COMPILER_ID:MSVC>:/utf-8>")
+ELSEIF (APPLE)
+	MESSAGE(STATUS "Now is Apple systens.")
+  ADD_DEFINITIONS(-O2 -Wall -Werror --std=gnu99 -g3 -Wmissing-declarations)
+ELSEIF (UNIX)
+	MESSAGE(STATUS "Now is UNIX-like OS's.")
+  ADD_DEFINITIONS(-O2 -Wall -Werror --std=gnu99 -g3 -Wmissing-declarations)
+ENDIF ()
 
 SET(LIBS)
 IF(USE_LIBUBOX)

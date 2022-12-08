@@ -15,16 +15,24 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
+#ifdef _WIN32
+#include "mman.h"
+#include "getopt.h"
+#include <time.h>
+#else
 #include <sys/mman.h>
+#include <getopt.h>
+#include <unistd.h>
+#include <malloc.h>
+
+#endif
 #include <sys/stat.h>
 #include <stdio.h>
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
-#include <getopt.h>
 #include <stdint.h>
 #include <fcntl.h>
-#include <unistd.h>
 #include <inttypes.h>
 
 #include "base64.h"
@@ -102,7 +110,7 @@ open_file(const char *filename, bool _read)
 	if (!strcmp(filename, "-"))
 		return _read ? stdin : stdout;
 
-	f = fopen(filename, _read ? "r" : "w");
+	f = fopen(filename, _read ? "rb" : "wb");
 	if (!f)
 		file_error(filename, _read);
 
@@ -162,6 +170,9 @@ static int verify(const char *msgfile)
 	struct edsign_verify_state vst;
 	FILE *f;
 	char buf[512];
+	memset(&sig,0,sizeof(sig));
+	memset(&vst,0,sizeof(vst));
+	memset(&buf,0,sizeof(buf));
 
 	f = open_file(msgfile, true);
 	if (!f) {
@@ -184,6 +195,7 @@ static int verify(const char *msgfile)
 
 	if (!get_base64_file(pubkeyfile, &pkey, sizeof(pkey), buf, sizeof(buf)) ||
 	    memcmp(pkey.pkalg, "Ed", 2) != 0) {
+		fprintf(stderr, "%s,%d\n",pkey.pkalg,memcmp(pkey.pkalg, "Ed", 2));
 		fprintf(stderr, "Failed to decode public key\n");
 		fclose(f);
 		return 1;
@@ -241,7 +253,6 @@ static int sign(const char *msgfile)
 		return 1;
 	}
 	mlen = st.st_size;
-
 	memcpy(sig.fingerprint, skey.fingerprint, sizeof(sig.fingerprint));
 	edsign_sec_to_pub(pubkey, skey.seckey);
 	edsign_sign(sig.sig, pubkey, skey.seckey, m, mlen);
@@ -292,6 +303,7 @@ static int generate(void)
 	};
 	struct sha512_state s;
 	char buf[512];
+	#ifndef _WIN32
 	FILE *f;
 
 	f = fopen("/dev/urandom", "r");
@@ -309,7 +321,21 @@ static int generate(void)
 	}
 	if (f)
 		fclose(f);
-
+#else
+	srand((unsigned)time(NULL));
+	for(int i = 0; i < sizeof(skey.fingerprint); i++)
+	{
+		skey.fingerprint[i] = (char)rand();
+	}
+	for(int i = 0; i < EDSIGN_SECRET_KEY_SIZE; i++)
+	{
+		skey.seckey[i] = (char)rand();
+	}
+	for(int i = 0; i < sizeof(skey.salt); i++)
+	{
+		skey.salt[i] = (char)rand();
+	}
+#endif
 	ed25519_prepare(skey.seckey);
 	edsign_sec_to_pub(skey.seckey + 32, skey.seckey);
 
@@ -409,7 +435,7 @@ int main(int argc, char **argv)
 	}
 
 	if (!sigfile && msgfile) {
-		char *buf = alloca(strlen(msgfile) + 5);
+		char *buf = _alloca(strlen(msgfile) + 5);
 
 		if (!strcmp(msgfile, "-")) {
 			fprintf(stderr, "Need signature file when reading message from stdin\n");

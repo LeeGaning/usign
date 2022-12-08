@@ -198,7 +198,7 @@ void sha512_add(struct sha512_state *s, const void *data, size_t len)
 		memcpy(&s->partial[partial], data, cur);
 
 		s->len += cur;
-		data += cur;
+		(const uint8_t*)data += cur;
 		len -= cur;
 
 		partial = s->len & (SHA512_BLOCK_SIZE - 1);
@@ -210,7 +210,7 @@ void sha512_add(struct sha512_state *s, const void *data, size_t len)
 		sha512_block(s, data);
 
 		s->len += SHA512_BLOCK_SIZE;
-		data += SHA512_BLOCK_SIZE;
+		(const uint8_t*)data += SHA512_BLOCK_SIZE;
 		len -= SHA512_BLOCK_SIZE;
 	}
 

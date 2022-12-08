@@ -66,7 +66,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include "base64.h"
-
+#ifndef u_char 
+#define u_char unsigned char
+#endif
 static const char Base64[] =
 	"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 static const char Pad64 = '=';

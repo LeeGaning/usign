@@ -26,6 +26,7 @@
 #include <malloc.h>
 #include <alloca.h>
 #define _alloca alloca
+
 #endif
 #include <sys/stat.h>
 #include <stdio.h>
@@ -122,7 +123,7 @@ static void
 get_file(const char *filename, char *buf, int buflen)
 {
 	FILE *f = open_file(filename, true);
-	int len;
+	size_t len;
 
 	while (1) {
 		char *cur = fgets(buf, buflen, f);
@@ -154,7 +155,7 @@ static void write_file(const char *name, const uint8_t *fingerprint,
 	FILE *f;
 
 	f = open_file(name, false);
-	fputs("untrusted comment: ", f);
+	fputs("cubenergy sign comment: ", f);
 	if (comment)
 		fputs(comment, f);
 	else
@@ -170,18 +171,51 @@ static int verify(const char *msgfile)
 	struct sig sig;
 	struct edsign_verify_state vst;
 	FILE *f;
-	char buf[512];
+
 	memset(&sig,0,sizeof(sig));
 	memset(&vst,0,sizeof(vst));
-	memset(&buf,0,sizeof(buf));
-
+	
 	f = open_file(msgfile, true);
 	if (!f) {
 		fprintf(stderr, "Cannot open message file\n");
 		return 1;
 	}
+	//
+	/* max length including newline */
+	#define SIG_MAX_LEN 512
+	/* space for all of that plus a nul terminator */
+	char buf[SIG_MAX_LEN + 1];
+	memset(&buf,0,sizeof(buf));
+	/* now read that many bytes from the end of the file */
+	fseek(f, -SIG_MAX_LEN, SEEK_END);
+	size_t len = fread(buf, 1, SIG_MAX_LEN, f);
 
-	if (!get_base64_file(sigfile, &sig, sizeof(sig), buf, sizeof(buf)) ||
+	/* don't forget the nul terminator */
+	buf[len] = '\0';
+
+	/* and find the last newline character (there must be one, right?) */
+	int newline_count = 0;
+	int offset = -1;
+	char *sig_buf = NULL;
+	for(int i = len;i!=0;--i){
+		if(buf[i] == '\n') {
+			newline_count++;
+			// printf("newline @%d\n",i);
+			if(newline_count == 3) {
+				offset = i;
+				break;
+			} else if(newline_count == 2) {
+				sig_buf = buf + i + 1;
+			}
+		}
+	}
+	if(offset < 0 || sig_buf==NULL) {
+		fprintf(stderr, "Failed to find signature\n");
+		fclose(f);
+		return 1;
+	}
+	// printf("sig(%d): %s",offset,sig_buf);
+	if (b64_decode(sig_buf, &sig, sizeof(sig)) != sizeof(sig) ||
 	    memcmp(sig.pkalg, "Ed", 2) != 0) {
 		fprintf(stderr, "Failed to decode signature\n");
 		fclose(f);
@@ -203,10 +237,14 @@ static int verify(const char *msgfile)
 	}
 
 	edsign_verify_init(&vst, sig.sig, pkey.pubkey);
-
-	while (!feof(f)) {
-		int len = fread(buf, 1, sizeof(buf), f);
+	fseek(f, 0, SEEK_END);
+	int file_len = ftell(f) - (SIG_MAX_LEN - offset);
+	fseek(f, 0, SEEK_SET);
+	while (file_len>0) {
+		int read_size = file_len>sizeof(buf)?sizeof(buf):file_len;
+		int len = fread(buf, 1, read_size, f);
 		edsign_verify_add(&vst, buf, len);
+		file_len -= len;
 	}
 	fclose(f);
 
@@ -220,7 +258,12 @@ static int verify(const char *msgfile)
 		fprintf(stderr, "OK\n");
 	return 0;
 }
-
+/**
+ * @brief 
+ * 
+ * @param msgfile 待签名文件
+ * @return int 
+ */
 static int sign(const char *msgfile)
 {
 	struct seckey skey;
@@ -257,13 +300,29 @@ static int sign(const char *msgfile)
 	memcpy(sig.fingerprint, skey.fingerprint, sizeof(sig.fingerprint));
 	edsign_sec_to_pub(pubkey, skey.seckey);
 	edsign_sign(sig.sig, pubkey, skey.seckey, m, mlen);
+	//
+	if (b64_encode(&sig, sizeof(sig), buf, sizeof(buf)) < 0){
+		munmap(m, mlen);
+		close(mfd);
+		return 1;
+	}
+	FILE *f;
+
+	f = open_file(sigfile, false);
+	fwrite(m,1,mlen,f);
+	fputs("\ncubenergy sign comment: ", f);
+	if (comment)
+		fputs(comment, f);
+	else
+		fprintf(f, "%s %016"PRIx64, "signed by key",
+			fingerprint_u64(sig.fingerprint));
+	fprintf(f, "\n%s\n", buf);
+	fclose(f);
+
 	munmap(m, mlen);
 	close(mfd);
 
-	if (b64_encode(&sig, sizeof(sig), buf, sizeof(buf)) < 0)
-		return 1;
 
-	write_file(sigfile, sig.fingerprint, "signed by key", buf);
 
 	return 0;
 }
